@@ -89,7 +89,16 @@ def backfill(st, s):
    for tf in TFS:
       floor = now - (M1_DAYS if tf == 1 else BACKFILL_DAYS) * 86400
       last = st.last_ts(s.id, tf)
-      pull(st, s, tf, max(last - tf * 180, floor) if last else floor, now)
+      start = max(last - tf * 180, floor) if last else floor
+      log.info(
+         "backfill %s tf=%d last=%s from=%s to=%s (days=%.2f)",
+         s.name, tf,
+         datetime.fromtimestamp(last, tz=timezone.utc).isoformat() if last else "none",
+         datetime.fromtimestamp(start, tz=timezone.utc).isoformat(),
+         datetime.fromtimestamp(now,   tz=timezone.utc).isoformat(),
+         (now - start) / 86400,
+      )
+      pull(st, s, tf, start, now)
    log.info("backfill done %s", s.name)
 
 
