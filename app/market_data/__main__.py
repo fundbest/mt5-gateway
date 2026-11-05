@@ -11,7 +11,9 @@ import MetaTrader5 as mt5 # type: ignore
 from .candles import TFS, Builder
 from .publisher import Publisher
 from .store import Sink, Store
-from .timeconv import server_to_utc, utc_to_server
+from .timeconv import (
+   current_rule, load_state, measure, pick_rule, save_state, server_to_utc, set_rule, utc_to_server,
+)
 
 log = logging.getLogger("market_data")
 LOCK = threading.RLock()
@@ -32,6 +34,7 @@ TF = {
    60: mt5.TIMEFRAME_H1, 240: mt5.TIMEFRAME_H4, 1440: mt5.TIMEFRAME_D1,
 }
 
+HALF = {}
 
 def dt(server_ts):
    return datetime.fromtimestamp(server_ts, tz=timezone.utc)
@@ -53,8 +56,12 @@ def fmt_row(s, tf, ts, o, h, l, c, v):
 
 def rate_rows(s, tf, rates):
    now = utc_to_server(int(time.time()))
+   h = HALF.get(s.name, 0.0)
    return [
-      fmt_row(s, tf, server_to_utc(int(r["time"])), r["open"], r["high"], r["low"], r["close"], r["tick_volume"])
+      fmt_row(
+         s, tf, server_to_utc(int(r["time"])),
+         r["open"] - h, r["high"] - h, r["low"] - h, r["close"] - h, r["tick_volume"],
+      )
       for r in rates
       if int(r["time"]) + tf * 60 <= now
    ]
@@ -111,6 +118,8 @@ def maintenance(syms):
       try:
          for s in syms:
             repair(st, s)
+         refresh_markup(st)
+
          loops += 1
          if loops % 360 == 0:
             st.prune(M1_DAYS)
@@ -118,6 +127,48 @@ def maintenance(syms):
          log.exception("repair failed")
          st.reset()
 
+def sample_offset(syms, wait=90):
+   base = {}
+   for s in syms:
+      with LOCK:
+         t = mt5.symbol_info_tick(s.broker)
+      base[s.name] = t.time_msc if t is not None else 0
+   end = time.time() + wait
+   while time.time() < end:
+      time.sleep(1)
+      for s in syms:
+         with LOCK:
+            t = mt5.symbol_info_tick(s.broker)
+         if t is not None and t.time_msc and t.time_msc != base[s.name]:
+            off = measure(t.time_msc / 1000, time.time())
+            if off is not None:
+               return off
+   return None
+
+def resolve_rule(syms):
+   mode = os.getenv("SERVER_TZ_MODE", "auto")
+   fixed = os.getenv("SERVER_UTC_OFFSET_SECONDS")
+   if mode == "auto" and fixed:
+      mode = "fixed"
+   if mode == "fixed":
+      set_rule("fixed", int(fixed))
+   elif mode in ("ny7", "athens"):
+      set_rule(mode)
+   else:
+      off = sample_offset(syms)
+      if off is not None:
+         kind, sec = pick_rule(off, int(time.time()))
+         set_rule(kind, sec)
+         save_state(kind, sec)
+         log.info("broker server time rule detected: %s, offset now %ds", kind, off)
+      else:
+         saved = load_state()
+         if saved:
+            set_rule(*saved)
+            log.warning("no live tick, using saved time rule %s", saved)
+         else:
+            log.error("no live tick and no saved time rule, falling back to ny7")
+   log.info("time rule: %s", current_rule())
 
 def load_symbols():
    st = Store(DSN)
@@ -131,11 +182,12 @@ def load_symbols():
          time.sleep(3)
 
    out = []
-   for sid, name, digits in rows:
+   for sid, name, digits, markup in rows:
       broker = SYMBOL_MAP.get(name, name + SUFFIX)
       with LOCK:
          ok = mt5.symbol_select(broker, True) and mt5.symbol_info(broker) is not None
       if ok:
+         HALF[name] = float(markup) / 2
          out.append(Sym(sid, name, broker, digits))
       else:
          log.warning("symbol %s (%s) not available at broker", name, broker)
@@ -174,6 +226,7 @@ def new_ticks(s, cur):
 
 def seed(builder, s):
    now = utc_to_server(int(time.time()))
+   h = HALF.get(s.name, 0.0)
    for tf in TFS:
       with LOCK:
          rates = mt5.copy_rates_from_pos(s.broker, TF[tf], 0, 1)
@@ -182,9 +235,14 @@ def seed(builder, s):
       r = rates[0]
       if int(r["time"]) + tf * 60 > now:
          builder.seed(
-            s.name, tf, [int(r["time"]), float(r["open"]), float(r["high"]),
-            float(r["low"]), float(r["close"]), int(r["tick_volume"])]
+            s.name, tf, [int(r["time"]), float(r["open"]) - h, float(r["high"]) - h,
+            float(r["low"]) - h, float(r["close"]) - h, int(r["tick_volume"])]
          )
+
+def refresh_markup(st):
+   for _, name, _, markup in st.symbols():
+      if name in HALF:
+         HALF[name] = float(markup) / 2
 
 
 def heartbeat():
@@ -201,6 +259,7 @@ def main():
    )
    connect()
    syms = load_symbols()
+   resolve_rule(syms)
    by_name = {s.name: s for s in syms}
 
    sink = Sink(DSN)
@@ -233,13 +292,16 @@ def main():
          ticks = new_ticks(s, cur)
          if ticks is None:
             continue
+
          alive = True
+         h = HALF[s.name]
          last = None
          for t in ticks:
-            bid = float(t["bid"])
-            if bid <= 0:
+            raw_bid = float(t["bid"])
+            if raw_bid <= 0:
                continue
-            ask = float(t["ask"]) or bid
+            bid = raw_bid - h
+            ask = (float(t["ask"]) or raw_bid) + h
             tm = int(t["time_msc"])
             builder.add(s.name, bid, tm // 1000)
             last = (bid, ask, server_to_utc(tm // 1000) * 1000 + tm % 1000)

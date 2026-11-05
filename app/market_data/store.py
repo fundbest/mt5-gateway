@@ -42,7 +42,7 @@ class Store:
 
    def symbols(self):
       return self.db().execute(
-         "SELECT id, symbol, digits FROM sim_symbols WHERE enabled ORDER BY id"
+         "SELECT id, symbol, digits, spread_markup FROM sim_symbols WHERE enabled ORDER BY id"
       ).fetchall()
 
    def last_ts(self, sid, tf):
