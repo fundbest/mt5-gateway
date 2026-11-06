@@ -88,8 +88,36 @@ def rate_rows(s, tf, rates):
       ))
    return out
 
+def pull_pos(st, s, tf, min_utc):
+   total = 0
+   pos = 0
+   chunk = 5000
+   while True:
+      with LOCK:
+         rates = mt5.copy_rates_from_pos(s.broker, TF[tf], pos, chunk)
+      if rates is None or len(rates) == 0:
+         break
+      rows = rate_rows(s, tf, rates)
+      rows = [r for r in rows if r[2] >= min_utc]
+      if rows:
+         st.upsert(rows)
+         total += len(rows)
+      if len(rates) < chunk:
+         break
+      # oldest bar in this batch
+      oldest = int(rates[0]["time"])
+      if server_to_utc(oldest) < min_utc:
+         break
+      pos += len(rates)
+      time.sleep(0.05)
+   log.info("pull_pos %s tf=%d upsert=%d", s.name, tf, total)
 
 def pull(st, s, tf, from_utc, to_utc):
+   if tf <= 5:
+      force_history(s, tf, 20000)
+      pull_pos(st, s, tf, from_utc)
+      return
+
    # force cache fill first (especially important for M1/M5)
    need = 20000 if tf <= 5 else 5000
    seeded = force_history(s, tf, need)
