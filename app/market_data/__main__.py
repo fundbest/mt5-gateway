@@ -68,6 +68,12 @@ def fmt_row(s, tf, ts, o, h, l, c, v):
    return (s.id, tf, ts, f"{o:.{d}f}", f"{h:.{d}f}", f"{l:.{d}f}", f"{c:.{d}f}", str(int(v)))
 
 
+def force_history(s, tf, bars=5000):
+   """Make terminal download history for this symbol/TF."""
+   with LOCK:
+      rates = mt5.copy_rates_from_pos(s.broker, TF[tf], 0, bars)
+   return rates
+
 def rate_rows(s, tf, rates):
    now_server = utc_to_server(int(time.time()))
    h = HALF.get(s.name, 0.0)
@@ -84,32 +90,52 @@ def rate_rows(s, tf, rates):
 
 
 def pull(st, s, tf, from_utc, to_utc):
-   span = tf * 60 * 20000
+   # force cache fill first (especially important for M1/M5)
+   need = 20000 if tf <= 5 else 5000
+   seeded = force_history(s, tf, need)
+   if seeded is None or len(seeded) == 0:
+      log.warning("force_history empty %s tf=%d err=%s", s.name, tf, mt5.last_error())
+
+   # smaller chunks for low TF (MT5 often caps ~10k–20k bars per call)
+   max_bars = 8000
+   span = max(tf * 60 * max_bars, 3600)
    t = from_utc
    while t < to_utc:
       end = min(t + span, to_utc)
       rates = None
-      for _ in range(3):
+      for attempt in range(3):
          with LOCK:
                rates = mt5.copy_rates_range(s.broker, TF[tf], dt(t), dt(end))
-         if rates is not None:
+         if rates is not None and len(rates) > 0:
                break
-         time.sleep(2)
+         # fallback: positional history around this window
+         with LOCK:
+               rates = mt5.copy_rates_from_pos(s.broker, TF[tf], 0, max_bars)
+         if rates is not None and len(rates) > 0:
+               break
+         time.sleep(1 + attempt)
 
       n = 0 if rates is None else len(rates)
       if n:
          rows = rate_rows(s, tf, rates)
+         # keep only bars inside [t, end) when using from_pos fallback
+         if rows and rates is not None:
+               rows = [
+                  r for r in rows
+                  if t <= r[2] < end  # r[2] is utc ts in fmt_row
+               ] or rows
          if rows:
                st.upsert(rows)
-         log.info("pull %s tf=%d mt5=%d upsert=%d", s.name, tf, n, len(rows) if n else 0)
+         log.info("pull %s tf=%d mt5=%d upsert=%d", s.name, tf, n, len(rows) if rows else 0)
       else:
-         log.warning("pull %s tf=%d empty %s→%s err=%s",
-                     s.name, tf,
-                     datetime.fromtimestamp(t, tz=timezone.utc).isoformat(),
-                     datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
-                     mt5.last_error())
+         log.warning(
+               "pull %s tf=%d empty %s→%s err=%s",
+               s.name, tf,
+               datetime.fromtimestamp(t, tz=timezone.utc).isoformat(),
+               datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
+               mt5.last_error(),
+         )
       t = end
-
 
 def backfill(st, s):
    now = int(time.time())
