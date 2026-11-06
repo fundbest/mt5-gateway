@@ -53,9 +53,9 @@ def _server_ts_from_syms(syms):
    def get():
       for s in syms:
          with LOCK:
-               t = mt5.symbol_info_tick(s.broker)
+            t = mt5.symbol_info_tick(s.broker)
          if t is not None and t.time:
-               return float(t.time)
+            return float(t.time)
       return None
    return get
 
@@ -162,49 +162,6 @@ def maintenance(syms):
       except Exception:
          log.exception("repair failed")
          st.reset()
-
-def sample_offset(syms, wait=90):
-   base = {}
-   for s in syms:
-      with LOCK:
-         t = mt5.symbol_info_tick(s.broker)
-      base[s.name] = t.time_msc if t is not None else 0
-   end = time.time() + wait
-   while time.time() < end:
-      time.sleep(1)
-      for s in syms:
-         with LOCK:
-            t = mt5.symbol_info_tick(s.broker)
-         if t is not None and t.time_msc and t.time_msc != base[s.name]:
-            off = measure(t.time_msc / 1000, time.time())
-            if off is not None:
-               return off
-   return None
-
-def resolve_rule(syms):
-   mode = os.getenv("SERVER_TZ_MODE", "auto")
-   fixed = os.getenv("SERVER_UTC_OFFSET_SECONDS")
-   if mode == "auto" and fixed:
-      mode = "fixed"
-   if mode == "fixed":
-      set_rule("fixed", int(fixed))
-   elif mode in ("ny7", "athens"):
-      set_rule(mode)
-   else:
-      off = sample_offset(syms)
-      if off is not None:
-         kind, sec = pick_rule(off, int(time.time()))
-         set_rule(kind, sec)
-         save_state(kind, sec)
-         log.info("broker server time rule detected: %s, offset now %ds", kind, off)
-      else:
-         saved = load_state()
-         if saved:
-            set_rule(*saved)
-            log.warning("no live tick, using saved time rule %s", saved)
-         else:
-            log.error("no live tick and no saved time rule, falling back to ny7")
-   log.info("time rule: %s", current_rule())
 
 def load_symbols():
    st = Store(DSN)
