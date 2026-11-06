@@ -169,7 +169,7 @@ def test_persist_algo_trading_keeps_the_terminals_utf16_format_and_other_setting
 ):
     ini = tmp_path / "common.ini"
     ini.write_bytes(
-        "[Common]\r\nEnvironment=ABC\r\n[Charts]\r\nMaxBars=100000\r\n".encode("utf-16")
+        "[Common]\r\nEnvironment=ABC\r\n[Charts]\r\nMaxBars=500000\r\n".encode("utf-16")
     )
 
     persist_algo_trading(ini, True)
@@ -177,7 +177,7 @@ def test_persist_algo_trading_keeps_the_terminals_utf16_format_and_other_setting
     assert ini.read_bytes()[:2] == b"\xff\xfe"
     text = _read_ini(ini)
     assert "Environment=ABC\r\n" in text
-    assert "MaxBars=100000\r\n" in text
+    assert "MaxBars=500000\r\n" in text
     assert "[Experts]\r\nAllowLiveTrading=1\r\nEnabled=1\r\nAccount=0\r\n" in text
 
 
