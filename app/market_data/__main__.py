@@ -12,8 +12,8 @@ from .candles import TFS, Builder
 from .publisher import Publisher
 from .store import Sink, Store
 from .timeconv import (
-    current_rule, resolve_rule, save_state, server_to_utc, set_rule,
-    utc_to_server, offset_seconds,
+   current_rule, resolve_rule, save_state, server_to_utc, set_rule,
+   utc_to_server, offset_seconds,
 )
 
 log = logging.getLogger("market_data")
@@ -37,7 +37,7 @@ TF = {
 
 HALF = {}
 
-def dt(utc_ts: int | float) -> datetime:
+def dt(utc_ts) -> datetime:
    return datetime.fromtimestamp(int(utc_ts), tz=timezone.utc)
 
 

@@ -2,8 +2,9 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import lru_cache
+from typing import Optional, Union, Callable
 
 log = logging.getLogger("market_data.tz")
 
@@ -27,13 +28,13 @@ def offset_seconds() -> int:
     return int(_rule[1])
 
 
-def utc_to_server(ts: int | float) -> int:
-    return int(ts) + offset_seconds()
+def utc_to_server(ts: Union[int, float]) -> int:
+   return int(ts) + offset_seconds()
 
 
 @lru_cache(maxsize=16384)
-def server_to_utc(ts: int | float) -> int:
-    return int(ts) - offset_seconds()
+def server_to_utc(ts: Union[int, float]) -> int:
+   return int(ts) - offset_seconds()
 
 
 def load_state():
@@ -54,22 +55,21 @@ def save_state(kind: str, seconds: int) -> None:
         log.warning("could not save tz state: %s", e)
 
 
-def _round_offset(raw: float) -> int | None:
-    """Round to 15-minute boundary; reject if residual > 2 minutes."""
-    step = 900
-    off = int(round(raw / step) * step)
-    if abs(raw - off) <= 120:
-        return off
-    return None
+def _round_offset(raw: float) -> Optional[int]:
+   step = 900
+   off = int(round(raw / step) * step)
+   if abs(raw - off) <= 120:
+      return off
+   return None
 
 
-def measure_from_tick(server_ts: float, utc_now: float | None = None) -> int | None:
-    if utc_now is None:
-        utc_now = time.time()
-    return _round_offset(server_ts - utc_now)
+def measure_from_tick(server_ts: float, utc_now: Optional[float] = None) -> Optional[int]:
+   if utc_now is None:
+      utc_now = time.time()
+   return _round_offset(server_ts - utc_now)
 
 
-def detect_offset(get_server_ts, samples: int = 8, gap: float = 0.4) -> int | None:
+def detect_offset(get_server_ts: Callable[[], Optional[float]], samples: int = 8, gap: float = 0.4) -> Optional[int]:
     """
     get_server_ts: callable () -> float | None
       should return broker server time in seconds (e.g. tick.time or time_msc/1000).
