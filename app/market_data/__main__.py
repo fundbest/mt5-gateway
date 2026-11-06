@@ -12,7 +12,8 @@ from .candles import TFS, Builder
 from .publisher import Publisher
 from .store import Sink, Store
 from .timeconv import (
-   current_rule, load_state, measure, pick_rule, save_state, server_to_utc, set_rule, utc_to_server,
+    current_rule, resolve_rule, save_state, server_to_utc, set_rule,
+    utc_to_server, offset_seconds,
 )
 
 log = logging.getLogger("market_data")
@@ -36,8 +37,8 @@ TF = {
 
 HALF = {}
 
-def dt(server_ts):
-   return datetime.fromtimestamp(server_ts, tz=timezone.utc)
+def dt(utc_ts: int | float) -> datetime:
+   return datetime.fromtimestamp(int(utc_ts), tz=timezone.utc)
 
 
 def connect():
@@ -48,6 +49,19 @@ def connect():
          log.warning("mt5 not ready: %s", mt5.last_error())
       time.sleep(5)
 
+def _server_ts_from_syms(syms):
+   def get():
+      for s in syms:
+         with LOCK:
+               t = mt5.symbol_info_tick(s.broker)
+         if t is not None and t.time:
+               return float(t.time)
+      return None
+   return get
+
+def resolve_rule_for(syms):
+   resolve_rule(_server_ts_from_syms(syms))
+   log.info("time rule: %s (offset %+ds)", current_rule(), offset_seconds())
 
 def fmt_row(s, tf, ts, o, h, l, c, v):
    d = s.digits
@@ -55,16 +69,18 @@ def fmt_row(s, tf, ts, o, h, l, c, v):
 
 
 def rate_rows(s, tf, rates):
-   now = utc_to_server(int(time.time()))
+   now_server = utc_to_server(int(time.time()))
    h = HALF.get(s.name, 0.0)
-   return [
-      fmt_row(
-         s, tf, server_to_utc(int(r["time"])),
+   out = []
+   for r in rates:
+      ts_server = int(r["time"])
+      if ts_server + tf * 60 > now_server:
+         continue
+      out.append(fmt_row(
+         s, tf, server_to_utc(ts_server),
          r["open"] - h, r["high"] - h, r["low"] - h, r["close"] - h, r["tick_volume"],
-      )
-      for r in rates
-      if int(r["time"]) + tf * 60 <= now
-   ]
+      ))
+   return out
 
 
 def pull(st, s, tf, from_utc, to_utc):
@@ -75,12 +91,23 @@ def pull(st, s, tf, from_utc, to_utc):
       rates = None
       for _ in range(3):
          with LOCK:
-            rates = mt5.copy_rates_range(s.broker, TF[tf], dt(utc_to_server(t)), dt(utc_to_server(end)))
+               rates = mt5.copy_rates_range(s.broker, TF[tf], dt(t), dt(end))
          if rates is not None:
-            break
+               break
          time.sleep(2)
-      if rates is not None and len(rates):
-         st.upsert(rate_rows(s, tf, rates))
+
+      n = 0 if rates is None else len(rates)
+      if n:
+         rows = rate_rows(s, tf, rates)
+         if rows:
+               st.upsert(rows)
+         log.info("pull %s tf=%d mt5=%d upsert=%d", s.name, tf, n, len(rows) if n else 0)
+      else:
+         log.warning("pull %s tf=%d empty %s→%s err=%s",
+                     s.name, tf,
+                     datetime.fromtimestamp(t, tz=timezone.utc).isoformat(),
+                     datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
+                     mt5.last_error())
       t = end
 
 
@@ -212,8 +239,15 @@ def init_cursor(s):
 
 
 def new_ticks(s, cur):
+   server_sec = cur[0] // 1000
+   utc_sec = server_to_utc(server_sec)
    with LOCK:
-      ticks = mt5.copy_ticks_from(s.broker, dt(cur[0] // 1000), 5000, mt5.COPY_TICKS_ALL)
+      ticks = mt5.copy_ticks_from(
+         s.broker,
+         dt(utc_sec),
+         5000,
+         mt5.COPY_TICKS_ALL,
+      )
    if ticks is None:
       return None
    ms, skip = cur
@@ -268,7 +302,7 @@ def main():
    )
    connect()
    syms = load_symbols()
-   resolve_rule(syms)
+   resolve_rule_for(syms)
    by_name = {s.name: s for s in syms}
 
    sink = Sink(DSN)
