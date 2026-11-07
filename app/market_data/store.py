@@ -15,6 +15,8 @@ FROM unnest(%s::int2[], %s::int2[], %s::bigint[], %s::text[], %s::text[], %s::te
   AS x(s, f, t, o, h, l, c, v)
 ON CONFLICT (symbol_id, tf, ts) DO UPDATE
 SET o = EXCLUDED.o, h = EXCLUDED.h, l = EXCLUDED.l, c = EXCLUDED.c, v = EXCLUDED.v
+WHERE (sim_candles.o, sim_candles.h, sim_candles.l, sim_candles.c, sim_candles.v)
+	IS DISTINCT FROM (EXCLUDED.o, EXCLUDED.h, EXCLUDED.l, EXCLUDED.c, EXCLUDED.v)
 """
 
 
