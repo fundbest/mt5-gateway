@@ -96,7 +96,7 @@ def sync_symbols(st, names):
    # if not x:
    for s in ("BTCUSD", "EURUSD"):
       t = mt5.symbol_info_tick(s)
-      print(t)
+      print(1111, t)
    #    print(s, round((t.time - time.time()) / 3600, 2), "h")
    # r = mt5.copy_rates_from_pos("EURUSD", mt5.TIMEFRAME_M1, 0, 1)[0]
    # print(time.strftime("%a %H:%M", time.gmtime(int(r["time"]))))
