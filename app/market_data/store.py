@@ -67,20 +67,15 @@ class Store:
          "DELETE FROM sim_candles WHERE tf = 1 AND ts < now() - make_interval(days => %s)", (days,)
       )
 
-   def sync_symbols(self, rows, update):
-      conflict = "DO NOTHING"
-      if update:
-         conflict = (
-            "DO UPDATE SET kind = EXCLUDED.kind, base_ccy = EXCLUDED.base_ccy, quote_ccy = EXCLUDED.quote_ccy, "
-            "digits = EXCLUDED.digits, contract_size = EXCLUDED.contract_size, min_lot = EXCLUDED.min_lot, "
-            "max_lot = EXCLUDED.max_lot, lot_step = EXCLUDED.lot_step"
-         )
+   def sync_symbols(self, rows):
       sql = (
          "INSERT INTO sim_symbols (id, symbol, kind, base_ccy, quote_ccy, digits, contract_size, min_lot, max_lot, "
          "lot_step, max_leverage, commission_per_lot, spread_markup, min_stop_distance) "
          "VALUES ((SELECT COALESCE(max(id), 0) + 1 FROM sim_symbols), %s::text, %s::text, %s::text, %s::text, "
          "%s::smallint, %s::numeric, %s::numeric, %s::numeric, %s::numeric, %s::int, %s::numeric, %s::numeric, "
-         "%s::numeric) ON CONFLICT (symbol) " + conflict
+         "%s::numeric) ON CONFLICT (symbol) DO UPDATE SET kind = EXCLUDED.kind, base_ccy = EXCLUDED.base_ccy, "
+         "quote_ccy = EXCLUDED.quote_ccy, digits = EXCLUDED.digits, contract_size = EXCLUDED.contract_size, "
+         "min_lot = EXCLUDED.min_lot, max_lot = EXCLUDED.max_lot, lot_step = EXCLUDED.lot_step"
       )
       conn = self.db()
       with conn.transaction():

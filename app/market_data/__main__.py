@@ -9,7 +9,6 @@ from . import feed, session
 from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
-from .timeconv import server_to_utc, utc_to_server
 
 log = logging.getLogger("market_data")
 STOP = feed.STOP
@@ -18,7 +17,7 @@ DSN = os.environ["DATABASE_URL"]
 CHANNEL = os.getenv("CENTRIFUGO_PX_PREFIX", "market:px.")
 REPAIR_SECONDS = int(os.getenv("REPAIR_SECONDS", "60"))
 CENT_EVERY = int(os.getenv("CENT_EVERY_MS", "250")) / 1000
-LIVE_EVERY = int(os.getenv("LIVE_EVERY_MS", "500")) / 1000
+LIVE_EVERY = int(os.getenv("LIVE_EVERY_MS", "0")) / 1000
 POLL = int(os.getenv("POLL_INTERVAL_MS", "100")) / 1000
 INTERVAL = {"forex": POLL, "metal": POLL, "crypto": int(os.getenv("POLL_CRYPTO_MS", "250")) / 1000}
 LOOP = 0.05
@@ -45,12 +44,18 @@ def on_signal(signum, frame):
 
 def maintenance(syms):
    st = Store(DSN)
+   by_name = {s.name: s for s in syms}
    STOP.wait(feed.HISTORY_DELAY)
 
    pending = list(syms)
    while pending and not STOP.is_set():
+      s = pending[0]
+      if not s.clock.ready:
+         pending.append(pending.pop(0))
+         STOP.wait(1)
+         continue
       try:
-         feed.backfill(st, pending[0])
+         feed.backfill(st, s)
          pending.pop(0)
          STOP.wait(feed.SYMBOL_PAUSE)
       except Exception:
@@ -64,10 +69,13 @@ def maintenance(syms):
          now = time.time()
          rows = []
          for s in syms:
-            if session.awake(s.kind, now):
+            if s.clock.ready and session.awake(s.kind, now):
                rows += feed.repair_rows(s)
          st.upsert(rows)
-         feed.refresh_markup(st)
+         for _, name, _, _, markup in st.symbols():
+            s = by_name.get(name)
+            if s is not None:
+               s.half = float(markup) / 2
 
          loops += 1
          if loops % 360 == 0:
@@ -89,22 +97,11 @@ def main():
 
    if not feed.connect():
       return
-   store = Store(DSN)
-   names = feed.broker_names()
-   while not STOP.is_set():
-      try:
-         feed.sync_symbols(store, names)
-         break
-      except Exception:
-         log.exception("symbol sync failed")
-         store.reset()
-         STOP.wait(3)
-   syms = feed.load_symbols(store, names)
+   syms = feed.setup(Store(DSN))
    if not syms or STOP.is_set():
       log.error("no symbols to run")
       cleanup()
       return
-   feed.resolve_rule(syms)
    by_name = {s.name: s for s in syms}
 
    SINK = Sink(DSN)
@@ -117,20 +114,18 @@ def main():
       redis_pub.start()
 
    def on_close(name, tf, c):
-      SINK.put(feed.fmt_row(by_name[name], tf, server_to_utc(c[0]), c[1], c[2], c[3], c[4], c[5]))
+      s = by_name[name]
+      SINK.put(feed.fmt_row(s, tf, s.clock.to_utc(c[0]), c[1], c[2], c[3], c[4], c[5]))
 
    builder = Builder(on_close)
-   cursors = {s.name: feed.init_cursor(s) for s in syms}
    for s in syms:
-      feed.seed(builder, s)
+      s.cursor = feed.init_cursor(s)
    threading.Thread(target=maintenance, args=(syms,), daemon=True, name="maintenance").start()
 
-   next_poll = {s.name: 0.0 for s in syms}
-   next_cent, next_live, last_q, pending = {}, {}, {}, {}
    awake = {"forex": True, "metal": True, "crypto": True}
    active = None
-   next_sched = next_roll = next_beat = next_check = 0.0
-   fails = skew_hits = 0
+   next_sched = next_roll = next_beat = 0.0
+   fails = 0
 
    log.info("market_data running with %d symbols", len(syms))
    while not STOP.is_set():
@@ -147,19 +142,17 @@ def main():
 
       msgs, px, live, out = {}, {}, {}, []
       polled = alive = False
-      seen = None
 
       for s in syms:
-         if not awake[s.kind] or t0 < next_poll[s.name]:
+         if not awake[s.kind] or t0 < s.next_poll:
             continue
-         next_poll[s.name] = t0 + INTERVAL[s.kind]
-         cur = cursors[s.name]
-         if cur is None:
-            cursors[s.name] = feed.init_cursor(s)
+         s.next_poll = t0 + INTERVAL[s.kind]
+         if s.cursor is None:
+            s.cursor = feed.init_cursor(s)
             continue
 
          polled = True
-         res = feed.new_ticks(s, cur)
+         res = feed.new_ticks(s, s.cursor)
          if res is None:
             continue
          alive = True
@@ -167,8 +160,15 @@ def main():
          if not bids:
             continue
 
-         name, d = s.name, s.digits
-         lq = last_q.get(name)
+         clock = s.clock
+         if not clock.observe(tms[-1]) or not clock.ready:
+            continue
+         if not s.seeded:
+            feed.seed(builder, s)
+            s.seeded = True
+
+         name, d, to_utc = s.name, s.digits, clock.to_utc
+         lq = s.last_q
          b_s = a_s = t_ms = None
          for bid, ask, tm in zip(bids, asks, tms):
             sec = tm // 1000
@@ -178,27 +178,26 @@ def main():
             lq = (bid, ask)
             b_s = f"{bid:.{d}f}"
             a_s = f"{ask:.{d}f}"
-            t_ms = server_to_utc(sec) * 1000 + tm % 1000
+            t_ms = to_utc(sec) * 1000 + tm % 1000
             out.append(f'{{"s":"{name}","b":"{b_s}","a":"{a_s}","t":{t_ms}}}')
-         last_q[name] = lq
-         seen = tms[-1] // 1000
+         s.last_q = lq
          if b_s is None:
             continue
 
          px[name] = out[-1]
-         pending[name] = {"s": name, "b": b_s, "a": a_s, "t": t_ms}
-         if t0 >= next_live.get(name, 0.0):
-            next_live[name] = t0 + LIVE_EVERY
+         s.pending = {"s": name, "b": b_s, "a": a_s, "t": t_ms}
+         if t0 >= s.next_live:
+            s.next_live = t0 + LIVE_EVERY
             for tf, c in builder.cur[name].items():
                live[f"{name}:{tf}"] = (
-                  f"[{server_to_utc(c[0])},{c[1]:.{d}f},{c[2]:.{d}f},{c[3]:.{d}f},{c[4]:.{d}f},{c[5]}]"
+                  f"[{to_utc(c[0])},{c[1]:.{d}f},{c[2]:.{d}f},{c[3]:.{d}f},{c[4]:.{d}f},{c[5]}]"
                )
 
-      for name, data in list(pending.items()):
-         if t0 >= next_cent.get(name, 0.0):
-            next_cent[name] = t0 + CENT_EVERY
-            msgs[CHANNEL + name] = data
-            del pending[name]
+      for s in syms:
+         if s.pending is not None and t0 >= s.next_cent:
+            s.next_cent = t0 + CENT_EVERY
+            msgs[CHANNEL + s.name] = s.pending
+            s.pending = None
       if msgs:
          cent_pub.submit(msgs)
       if out and redis_pub is not None:
@@ -209,23 +208,15 @@ def main():
          if fails >= 50:
             log.error("mt5 unresponsive, reconnecting")
             fails = 0
-            if not feed.reconnect():
+            if not feed.reconnect(syms):
                break
-
-      if seen is not None and t0 >= next_check:
-         next_check = t0 + 60
-         skew = seen - utc_to_server(int(time.time()))
-         skew_hits = skew_hits + 1 if abs(skew) > 1500 else 0
-         if skew_hits >= 3:
-            log.error("server time skew %ds, re-detecting rule", skew)
-            skew_hits = 0
-            feed.resolve_rule(syms, wait=0)
 
       if t0 >= next_roll:
          next_roll = t0 + 1
-         now = utc_to_server(int(time.time()))
+         now = int(time.time())
          for s in syms:
-            builder.roll(s.name, now)
+            if s.clock.ready:
+               builder.roll(s.name, s.clock.to_server(now))
          if t0 >= next_beat:
             next_beat = t0 + 5
             feed.heartbeat()
