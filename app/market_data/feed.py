@@ -90,17 +90,20 @@ def resolve(name, names):
    return found[0] if found else None
 
 
-# x = False
-
 def sync_symbols(st, names):
-   # if not x:
-   for s in ("BTCUSD", "EURUSD"):
+   names = ("BTCUSD", "EURUSD", "XAUUSD")
+   for s in names:
+      mt5.symbol_select(s, True)
+   time.sleep(2)
+
+   now = time.time()
+   print("utc now", time.strftime("%a %H:%M:%S", time.gmtime(now)))
+   for s in names:
       t = mt5.symbol_info_tick(s)
-      if not t:
-         log.info(t)
-         log.info(s, round((t.time - time.time()) / 3600, 2), "h")
-   r = mt5.copy_rates_from_pos("EURUSD", mt5.TIMEFRAME_M1, 0, 1)[0]
-   log.info(time.strftime("%a %H:%M", time.gmtime(int(r["time"]))))
+      if t is None:
+         print(s, None)
+         continue
+      print(s, time.strftime("%a %H:%M:%S", time.gmtime(t.time)), round((t.time - now) / 3600, 2), "h")
 
    if SYNC_MODE == "off":
       return
