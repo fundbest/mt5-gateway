@@ -97,13 +97,13 @@ def sync_symbols(st, names):
    time.sleep(2)
 
    now = time.time()
-   print("utc now", time.strftime("%a %H:%M:%S", time.gmtime(now)))
+   log.info("utc now", time.strftime("%a %H:%M:%S", time.gmtime(now)))
    for s in names:
       t = mt5.symbol_info_tick(s)
       if t is None:
-         print(s, None)
+         log.info(s, None)
          continue
-      print(s, time.strftime("%a %H:%M:%S", time.gmtime(t.time)), round((t.time - now) / 3600, 2), "h")
+      log.info(s, time.strftime("%a %H:%M:%S", time.gmtime(t.time)), round((t.time - now) / 3600, 2), "h")
 
    if SYNC_MODE == "off":
       return
