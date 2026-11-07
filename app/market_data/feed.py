@@ -101,9 +101,14 @@ def sync_symbols(st, names):
    for s in names:
       t = mt5.symbol_info_tick(s)
       if t is None:
-         log.info(s + " " + "None")
+         log.warning("%s tick unavailable: %s", s, mt5.last_error())
          continue
-      log.info(s + time.strftime("%a %H:%M:%S", time.gmtime(t.time)), round((t.time - now) / 3600, 2), "h")
+      log.info(
+         "%s %s %.2f h",
+         s,
+         time.strftime("%a %H:%M:%S", time.gmtime(t.time)),
+         (t.time - now) / 3600,
+      )
 
    if SYNC_MODE == "off":
       return
