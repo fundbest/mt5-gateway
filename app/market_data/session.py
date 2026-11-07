@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from .timeconv import NY
+from .clock import NY
 
 
 def is_open(kind, ts):
