@@ -1,4 +1,7 @@
 TFS = (1, 5, 15, 30, 60, 240, 1440)
+SECS = tuple(tf * 60 for tf in TFS)
+FULL = len(TFS)
+
 
 class Builder:
    def __init__(self, on_close):
@@ -7,17 +10,30 @@ class Builder:
       self.on_close = on_close
 
    def add(self, sym, price, ts):
-      cs = self.cur.setdefault(sym, {})
-      for tf in TFS:
-         start = ts - ts % (tf * 60)
+      cs = self.cur.get(sym)
+      if cs is None:
+         cs = self.cur[sym] = {}
+      elif len(cs) == FULL and ts - ts % 60 == cs[1][0]:
+         for c in cs.values():
+            if price > c[2]:
+               c[2] = price
+            if price < c[3]:
+               c[3] = price
+            c[4] = price
+            c[5] += 1
+         return
+
+      done = self.done
+      for tf, sec in zip(TFS, SECS):
+         start = ts - ts % sec
          c = cs.get(tf)
          if c is None:
-            if start <= self.done.get((sym, tf), 0):
+            if start <= done.get((sym, tf), 0):
                continue
             cs[tf] = [start, price, price, price, price, 1]
          elif start > c[0]:
             self.on_close(sym, tf, c)
-            self.done[(sym, tf)] = c[0]
+            done[(sym, tf)] = c[0]
             cs[tf] = [start, price, price, price, price, 1]
          elif start == c[0]:
             if price > c[2]:

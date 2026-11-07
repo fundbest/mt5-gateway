@@ -1,136 +1,99 @@
 import json
-import logging
 import os
-import time
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Optional, Union, Callable
+from zoneinfo import ZoneInfo
 
-log = logging.getLogger("market_data.tz")
+NY = ZoneInfo("America/New_York")
+ATHENS = ZoneInfo("Europe/Athens")
+STATE_FILE = os.getenv("TZ_STATE_FILE", r"Z:\config\market_data_tz.json")
 
-STATE_FILE = os.getenv("TZ_STATE_FILE", "/tmp/market_data_tz.json")
-
-# [kind, seconds]  kind: "fixed" | seconds = UTC offset of broker server
-_rule = ["fixed", 0]
-
-
-def set_rule(kind: str, seconds: int = 0) -> None:
-    _rule[:] = [kind, int(seconds)]
-    server_to_utc.cache_clear()
-    log.info("time rule set: kind=%s offset=%+ds (%+.2fh)", kind, _rule[1], _rule[1] / 3600)
+_rule = ["ny7", 0]
 
 
-def current_rule():
-    return tuple(_rule)
+def offset_at(kind, seconds, utc_ts):
+   if kind == "fixed":
+      return seconds
+   if kind == "athens":
+      return int(datetime.fromtimestamp(utc_ts, tz=ATHENS).utcoffset().total_seconds()) + seconds
+   return int(datetime.fromtimestamp(utc_ts, tz=NY).utcoffset().total_seconds()) + 25200 + seconds
 
 
-def offset_seconds() -> int:
-    return int(_rule[1])
-
-
-def utc_to_server(ts: Union[int, float]) -> int:
-   return int(ts) + offset_seconds()
+def utc_to_server(ts):
+   return ts + offset_at(_rule[0], _rule[1], ts)
 
 
 @lru_cache(maxsize=16384)
-def server_to_utc(ts: Union[int, float]) -> int:
-   return int(ts) - offset_seconds()
+def server_to_utc(ts):
+   kind, sec = _rule
+   u = ts - offset_at(kind, sec, ts)
+   u = ts - offset_at(kind, sec, u)
+   return ts - offset_at(kind, sec, u)
 
 
-def load_state():
-    try:
-        with open(STATE_FILE) as f:
-            d = json.load(f)
-        return d["kind"], int(d["seconds"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+def set_rule(kind, seconds=0):
+   _rule[:] = [kind, seconds]
+   server_to_utc.cache_clear()
 
 
-def save_state(kind: str, seconds: int) -> None:
-    try:
-        os.makedirs(os.path.dirname(STATE_FILE) or ".", exist_ok=True)
-        with open(STATE_FILE, "w") as f:
-            json.dump({"kind": kind, "seconds": int(seconds)}, f)
-    except OSError as e:
-        log.warning("could not save tz state: %s", e)
+def current_rule():
+   return tuple(_rule)
 
 
-def _round_offset(raw: float) -> Optional[int]:
-   step = 900
-   off = int(round(raw / step) * step)
-   if abs(raw - off) <= 120:
-      return off
-   return None
+def measure(server_ts, now):
+   raw = server_ts - now
+   off = round(raw / 900) * 900
+   return off if abs(raw - off) <= 120 else None
 
 
-def measure_from_tick(server_ts: float, utc_now: Optional[float] = None) -> Optional[int]:
-   if utc_now is None:
-      utc_now = time.time()
-   return _round_offset(server_ts - utc_now)
+def pick_rule(off, now):
+   for kind in ("ny7", "athens"):
+      if offset_at(kind, 0, now) == off:
+         return kind, 0
+   return "fixed", off
 
 
-def detect_offset(get_server_ts: Callable[[], Optional[float]], samples: int = 8, gap: float = 0.4) -> Optional[int]:
-    """
-    get_server_ts: callable () -> float | None
-      should return broker server time in seconds (e.g. tick.time or time_msc/1000).
-    Takes several samples and picks the median rounded offset.
-    """
-    vals = []
-    for _ in range(samples):
-        st = get_server_ts()
-        now = time.time()
-        if st is not None and st > 0:
-            off = measure_from_tick(st, now)
-            if off is not None:
-                vals.append(off)
-        time.sleep(gap)
+def fit_history(opens):
+   obs = []
+   for o in opens:
+      d = datetime.fromtimestamp(o - 7200, tz=timezone.utc).astimezone(NY)
+      nominal = int(datetime(d.year, d.month, d.day, 17, tzinfo=NY).timestamp())
+      obs.append((nominal, o - nominal))
+   if len(obs) < 8:
+      return None
 
-    if not vals:
-        return None
+   best = None
+   for kind in ("ny7", "athens"):
+      res = Counter(round((off - offset_at(kind, 0, nominal)) / 900) * 900 for nominal, off in obs)
+      shift, score = res.most_common(1)[0]
+      if best is None or score > best[0]:
+         best = (score, kind, shift)
 
-    vals.sort()
-    return vals[len(vals) // 2]
+   fixed, score = Counter(round(off / 900) * 900 for _, off in obs).most_common(1)[0]
+   if score > best[0]:
+      best = (score, "fixed", fixed)
+   return best[1], best[2], best[0] / len(obs)
 
 
-def resolve_rule(get_server_ts, force: bool = False) -> None:
-    """
-    Auto-detect broker UTC offset.
-    Priority: live sample → saved state → 0 (with warning).
-    """
-    mode = os.getenv("SERVER_TZ_MODE", "auto").lower()
-    fixed = os.getenv("SERVER_UTC_OFFSET_SECONDS")
+def load_state(server):
+   try:
+      with open(STATE_FILE) as f:
+         d = json.load(f)[server]
+      return d["kind"], int(d["seconds"])
+   except (OSError, ValueError, KeyError):
+      return None
 
-    if mode == "fixed" and fixed is not None:
-        set_rule("fixed", int(fixed))
-        return
 
-    if mode != "auto" and not force:
-        # allow explicit ny7 / athens only if you still want them
-        if mode == "ny7":
-            # NY offset + 7h — computed once at now
-            from zoneinfo import ZoneInfo
-            ny = ZoneInfo("America/New_York")
-            sec = int(datetime.now(tz=ny).utcoffset().total_seconds()) + 25200
-            set_rule("fixed", sec)
-            return
-        if mode == "athens":
-            from zoneinfo import ZoneInfo
-            sec = int(datetime.now(tz=ZoneInfo("Europe/Athens")).utcoffset().total_seconds())
-            set_rule("fixed", sec)
-            return
-
-    off = detect_offset(get_server_ts)
-    if off is not None:
-        set_rule("fixed", off)
-        save_state("fixed", off)
-        return
-
-    saved = load_state()
-    if saved:
-        set_rule(*saved)
-        log.warning("no live tick for tz detect, using saved %s", saved)
-        return
-
-    set_rule("fixed", 0)
-    log.error("tz detect failed and no saved state — using offset 0 (UTC). "
-              "Historical bars may be wrong until a live tick is seen.")
+def save_state(server, kind, seconds):
+   try:
+      try:
+         with open(STATE_FILE) as f:
+            data = json.load(f)
+      except (OSError, ValueError):
+         data = {}
+      data[server] = {"kind": kind, "seconds": seconds}
+      with open(STATE_FILE, "w") as f:
+         json.dump(data, f)
+   except OSError:
+      pass

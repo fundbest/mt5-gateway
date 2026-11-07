@@ -1,4 +1,3 @@
-import json
 import logging
 import queue
 import threading
@@ -9,54 +8,72 @@ import requests
 log = logging.getLogger("publisher")
 
 
-class Publisher(threading.Thread):
-   def __init__(self, cent_url, cent_key, redis_url):
-      super().__init__(daemon=True, name="publisher")
-      self.url = cent_url.rstrip("/") + "/api/batch"
-      self.key = cent_key
-      self.http = requests.Session()
-      self.rdb = redis.Redis.from_url(redis_url) if redis_url else None
-      self.q = queue.Queue(maxsize=20)
+class RedisPublisher(threading.Thread):
+   def __init__(self, url):
+      super().__init__(daemon=True, name="redis-pub")
+      self.rdb = redis.Redis.from_url(
+         url, socket_timeout=2, socket_connect_timeout=2, socket_keepalive=True, health_check_interval=30
+      )
+      self.q = queue.Queue(maxsize=2000)
+      self.dropped = 0
 
-   def submit(self, msgs, px, live):
+   def submit(self, px, live, ticks):
       try:
-         self.q.put_nowait((msgs, px, live))
+         self.q.put_nowait((px, live, ticks))
+      except queue.Full:
+         self.dropped += 1
+         if self.dropped % 100 == 1:
+            log.warning("redis queue full, dropped=%d", self.dropped)
+
+   def run(self):
+      while True:
+         px, live, ticks = self.q.get()
+         try:
+            while True:
+               p2, l2, t2 = self.q.get_nowait()
+               px.update(p2)
+               live.update(l2)
+               ticks.extend(t2)
+         except queue.Empty:
+            pass
+         try:
+            p = self.rdb.pipeline(transaction=False)
+            p.hset("px", mapping=px)
+            if live:
+               p.hset("live", mapping=live)
+            for v in ticks:
+               p.publish("ticks", v)
+            p.execute()
+         except redis.RedisError as e:
+            log.warning("redis: %s", e)
+
+
+class CentrifugoPublisher(threading.Thread):
+   def __init__(self, url, key):
+      super().__init__(daemon=True, name="centrifugo-pub")
+      self.url = url.rstrip("/") + "/api/batch"
+      self.key = key
+      self.http = requests.Session()
+      self.q = queue.Queue(maxsize=50)
+
+   def submit(self, msgs):
+      try:
+         self.q.put_nowait(msgs)
       except queue.Full:
          pass
 
    def run(self):
       while True:
-         msgs, px, live = self.q.get()
+         msgs = self.q.get()
          try:
             while True:
-               m, p, l = self.q.get_nowait()
-               msgs.update(m)
-               px.update(p)
-               live.update(l)
+               msgs.update(self.q.get_nowait())
          except queue.Empty:
             pass
-         self.centrifugo(msgs)
-         self.cache(px, live)
-
-   def centrifugo(self, msgs):
-      body = {"commands": [{"publish": {"channel": ch, "data": d}} for ch, d in msgs.items()]}
-      try:
-         r = self.http.post(self.url, json=body, headers={"X-API-Key": self.key}, timeout=3)
-         if r.status_code != 200 or '"error"' in r.text:
-            log.warning("centrifugo %s %s", r.status_code, r.text[:200])
-      except requests.RequestException as e:
-         log.warning("centrifugo: %s", e)
-
-   def cache(self, px, live):
-      if self.rdb is None:
-         return
-      try:
-         p = self.rdb.pipeline()
-         p.hset("px", mapping=px)
-         if live:
-            p.hset("live", mapping=live)
-         for v in px.values():
-            p.publish("ticks", v)
-         p.execute()
-      except redis.RedisError as e:
-         log.warning("redis: %s", e)
+         body = {"commands": [{"publish": {"channel": ch, "data": d}} for ch, d in msgs.items()]}
+         try:
+            r = self.http.post(self.url, json=body, headers={"X-API-Key": self.key}, timeout=1)
+            if r.status_code != 200 or '"error"' in r.text:
+               log.warning("centrifugo %s %s", r.status_code, r.text[:200])
+         except requests.RequestException as e:
+            log.warning("centrifugo: %s", e)
