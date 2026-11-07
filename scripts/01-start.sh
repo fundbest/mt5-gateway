@@ -23,5 +23,5 @@ done
 # log_message "INFO" "Starting Flask API with waitress..."
 
 cd /app
-exec wine python -m market_data.test_mt5
+# exec wine python -m market_data.test_mt5
 exec wine python -m market_data

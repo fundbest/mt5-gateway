@@ -1,7 +1,5 @@
 import time
-
 import MetaTrader5 as mt5
-
 
 def main():
    try:
