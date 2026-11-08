@@ -1,35 +1,57 @@
+import os
+import re
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import MetaTrader5 as mt5  # type: ignore
-
-WATCH = {
-   "EURUSD": 8, "GBPUSD": 12, "USDJPY": 12, "USDCHF": 12, "USDCAD": 14, "AUDUSD": 10,
-   "NZDUSD": 14, "EURGBP": 12, "EURJPY": 20, "GBPJPY": 30, "AUDJPY": 25,
-   "XAUUSD": 25, "BTCUSD": 0,
-}
+import numpy as np
 
 FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
-METAL = {"XAU", "XAG", "XPT", "XPD"}
+METALS = {"XAU", "XAG", "XPT", "XPD"}
+CRYPTO = {"BTC", "ETH"} # "XRP", "BCH", "ADA", "SOL"
+
+ALIASES = {"GOLD": "XAUUSD", "SILVER": "XAGUSD"}
+
+MARKUP_FACTOR = float(os.getenv("MARKUP_FACTOR", "1"))
+SPREAD_LOOKBACK = timedelta(hours=float(os.getenv("SPREAD_LOOKBACK_HOURS", "1")))
 
 KINDS = {
-   "forex": {"commission": 7, "leverage": 500, "stop_points": 10, "max_lot": 50},
-   "metal": {"commission": 7, "leverage": 200, "stop_points": 20, "max_lot": 20},
-   "crypto": {"commission": 20, "leverage": 100, "stop_points": 500, "max_lot": 10},
+   "forex": {"commission": 7, "leverage": 500, "max_lot": 50},
+   "metal": {"commission": 7, "leverage": 200, "max_lot": 20},
+   "crypto": {"commission": 20, "leverage": 100, "max_lot": 10},
 }
+
+STEM = re.compile(r"[A-Z]+")
 
 
 def canonical(info):
-   quote = "USD" if info.currency_profit == "USDT" else info.currency_profit
-   name = info.currency_base + quote
-   return name if len(name) == 6 else info.name.upper()
+   m = STEM.match(info.name.upper())
+   if not m:
+      return None
+   stem = m.group()
+   if stem in ALIASES:
+      return ALIASES[stem]
+   if len(stem) < 6:
+      return None
+   quote = "USD" if stem[3:7] == "USDT" else stem[3:6]
+   return stem[:3] + quote
 
 
 def kind_of(name):
-   if name[:3] in METAL:
+   base = name[:3]
+   if base in METALS:
       return "metal"
-   if name[:3] in FIAT and name[3:] in FIAT:
-      return "forex"
-   return "crypto"
+   if base in CRYPTO:
+      return "crypto"
+   return "forex"
+
+
+def accepted(name):
+   base, quote = name[:3], name[3:]
+   kind = kind_of(name)
+   if kind == "forex":
+      return base in FIAT and quote in FIAT and base != quote
+   return quote == "USD"
 
 
 def pick(infos):
@@ -38,26 +60,38 @@ def pick(infos):
       if i.trade_mode != mt5.SYMBOL_TRADE_MODE_FULL:
          continue
       name = canonical(i)
-      if name not in WATCH:
+      if name is None or not accepted(name):
          continue
       rank = (i.name.upper() != name, len(i.name))
       cur = best.get(name)
       if cur is None or rank < cur[0]:
          best[name] = (rank, i)
-   return {n: best[n][1] for n in WATCH if n in best}
+   return {n: best[n][1] for n in sorted(best)}
 
 
-def row(name, info):
-   kind = kind_of(name)
-   cfg = KINDS[kind]
+def spread_points(info):
+   ticks = mt5.copy_ticks_from(
+      info.name, datetime.now(timezone.utc) - SPREAD_LOOKBACK, 2000, mt5.COPY_TICKS_INFO
+   )
+   if ticks is not None and len(ticks):
+      ok = (ticks["bid"] > 0) & (ticks["ask"] > 0)
+      if ok.any():
+         gap = (ticks["ask"] - ticks["bid"])[ok]
+         return max(int(round(float(np.median(gap)) / info.point)), 1)
+   return max(int(info.spread), 1)
+
+
+def row(name, info, spread_pts):
+   cfg = KINDS[kind_of(name)]
    digits = int(info.digits)
    point = Decimal(str(info.point))
-   stop_points = max(int(info.trade_stops_level), cfg["stop_points"])
+   markup_pts = max(int(round(spread_pts * MARKUP_FACTOR)), 0)
+   stop_pts = max(int(info.trade_stops_level), spread_pts)
    max_lot = min(Decimal(str(info.volume_max)), Decimal(cfg["max_lot"]))
    return (
-      name, kind, info.currency_base or name[:3], info.currency_profit or name[3:], digits,
+      name, kind_of(name), name[:3], name[3:], digits,
       str(Decimal(str(info.trade_contract_size))),
       str(Decimal(str(info.volume_min))), str(max_lot), str(Decimal(str(info.volume_step))),
       cfg["leverage"], str(cfg["commission"]),
-      str(point * WATCH[name]), str(point * stop_points),
+      str(point * markup_pts), str(point * stop_pts),
    )
