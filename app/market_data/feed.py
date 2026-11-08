@@ -110,7 +110,7 @@ def setup(st):
       try:
          pts = symbols.spread_points(info)
          rows.append(symbols.row(name, info, pts))
-         log.info("%s spread_pts=%d → %s", name, pts, info.name)
+         log.info("%s spread_pts=%d -> %s", name, pts, info.name)
       except Exception:
          log.exception("spread calc failed for %s", name)
 
