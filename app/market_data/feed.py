@@ -99,6 +99,20 @@ def fit_clock(s):
 def setup(st):
    with LOCK:
       infos = mt5.symbols_get()
+
+   for i in infos or ():
+      name = i.name.upper()
+      if any(x in name for x in ("XAU", "GOLD", "BTC", "XAG", "SILVER")):
+         log.info(
+            "MT5 CANDIDATE | name=%s base=%s profit=%s mode=%s visible=%s tradeable=%s",
+            i.name,
+            i.currency_base,
+            i.currency_profit,
+            i.trade_mode,
+            i.visible,
+            i.trade_allowed,
+         )
+
    found = symbols.pick(infos or ())
    for name in symbols.WATCH:
       if name not in found:
