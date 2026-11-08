@@ -40,7 +40,7 @@ def pick(infos):
       name = canonical(i)
       if name not in WATCH:
          continue
-      rank = (i.name != name, len(i.name))
+      rank = (i.name.upper() != name, len(i.name))
       cur = best.get(name)
       if cur is None or rank < cur[0]:
          best[name] = (rank, i)

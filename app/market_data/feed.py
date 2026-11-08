@@ -102,7 +102,7 @@ def setup(st):
 
    for i in infos or ():
       name = i.name.upper()
-      if any(x in name for x in ("XAU", "GOLD", "BTC", "XAG", "SILVER")):
+      if any(x in name for x in ("XAU", "GOLD", "BTC", "XAG", "SILVER", "NZD")):
          log.info(
             "MT5 CANDIDATE | name=%s base=%s profit=%s mode=%s visible=%s",
             i.name,
