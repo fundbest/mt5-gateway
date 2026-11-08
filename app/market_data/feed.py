@@ -101,10 +101,18 @@ def setup(st):
       infos = mt5.symbols_get()
 
    found = symbols.pick(infos or ())
-   for name in symbols.WATCH:
-      if name not in found:
-         log.warning("symbol %s not found at broker", name)
-   rows = [symbols.row(n, i) for n, i in found.items()]
+   if not found:
+      log.error("no symbols accepted from broker")
+      return []
+
+   rows = []
+   for name, info in found.items():
+      try:
+         pts = symbols.spread_points(info)
+         rows.append(symbols.row(name, info, pts))
+         log.info("%s spread_pts=%d → %s", name, pts, info.name)
+      except Exception:
+         log.exception("spread calc failed for %s", name)
 
    while not STOP.is_set():
       try:
@@ -131,7 +139,7 @@ def setup(st):
       s = Sym(sid, name, kind, info.name, digits, markup)
       fit_clock(s)
       out.append(s)
-      log.info("%s -> %s", name, info.name)
+      log.info("%s → %s", name, info.name)
    return out
 
 
