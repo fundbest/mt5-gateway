@@ -50,7 +50,7 @@ def accepted(name):
    base, quote = name[:3], name[3:]
    kind = kind_of(name)
    if kind == "forex":
-      return base in FIAT and quote in FIAT and base != quote
+      return base in FIAT and quote == "USD" and base != quote
    return quote == "USD"
 
 
