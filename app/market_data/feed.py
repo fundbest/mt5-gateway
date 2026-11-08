@@ -110,7 +110,6 @@ def setup(st):
             i.currency_profit,
             i.trade_mode,
             i.visible,
-            i.trade_allowed,
          )
 
    found = symbols.pick(infos or ())
