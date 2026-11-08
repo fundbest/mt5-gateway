@@ -139,7 +139,7 @@ def setup(st):
       s = Sym(sid, name, kind, info.name, digits, markup)
       fit_clock(s)
       out.append(s)
-      log.info("%s → %s", name, info.name)
+      log.info("%s -> %s", name, info.name)
    return out
 
 
