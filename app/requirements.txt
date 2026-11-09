@@ -11,3 +11,4 @@ psycopg[binary]
 redis
 requests
 tzdata
+protobuf
