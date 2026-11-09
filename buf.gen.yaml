@@ -1,4 +1,7 @@
 version: v2
 plugins:
-  - remote: buf.build/protocolbuffers/python
+  - local:
+      - go
+      - run
+      - github.com/wasilibs/go-protoc-gen-builtins/cmd/protoc-gen-python@latest
     out: app/market_data/gen

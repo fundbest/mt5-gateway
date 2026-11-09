@@ -4,6 +4,7 @@ import threading
 
 import redis
 import requests
+import base64
 
 log = logging.getLogger("publisher")
 
@@ -70,7 +71,10 @@ class CentrifugoPublisher(threading.Thread):
                msgs.update(self.q.get_nowait())
          except queue.Empty:
             pass
-         body = {"commands": [{"publish": {"channel": ch, "data": d}} for ch, d in msgs.items()]}
+         body = {"commands": [
+            {"publish": {"channel": ch, "b64data": base64.b64encode(raw).decode()}}
+            for ch, raw in msgs.items()
+         ]}
          try:
             r = self.http.post(self.url, json=body, headers={"X-API-Key": self.key}, timeout=1)
             if r.status_code != 200 or '"error"' in r.text:

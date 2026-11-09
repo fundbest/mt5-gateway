@@ -52,6 +52,7 @@ class Sym:
       self.last_q = None
       self.pending = None
       self.seeded = False
+      self.scale = 10 ** digits
 
 
 def dt(server_ts):

@@ -10,6 +10,8 @@ from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
 
+from .gen.fundbest.v1 import market_pb2
+
 log = logging.getLogger("market_data")
 STOP = feed.STOP
 
@@ -169,23 +171,23 @@ def main():
 
          name, d, to_utc = s.name, s.digits, clock.to_utc
          lq = s.last_q
-         b_s = a_s = t_ms = None
+         tick = market_pb2.Tick
+         # b_s = a_s = t_ms = None
          for bid, ask, tm in zip(bids, asks, tms):
             sec = tm // 1000
             builder.add(name, bid, sec)
             if (bid, ask) == lq:
                continue
             lq = (bid, ask)
-            b_s = f"{bid:.{d}f}"
-            a_s = f"{ask:.{d}f}"
             t_ms = to_utc(sec) * 1000 + tm % 1000
-            out.append(f'{{"s":"{name}","b":"{b_s}","a":"{a_s}","t":{t_ms}}}')
+            raw = tick(symbol_id=s.id, bid=round(bid * s.scale), ask=round(ask * s.scale), time_ms=t_ms).SerializeToString()
+            out.append(raw)
          s.last_q = lq
-         if b_s is None:
+         if not out:
             continue
 
          px[name] = out[-1]
-         s.pending = {"s": name, "b": b_s, "a": a_s, "t": t_ms}
+         s.pending = out[-1]
          if t0 >= s.next_live:
             s.next_live = t0 + LIVE_EVERY
             for tf, c in builder.cur[name].items():
