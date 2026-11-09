@@ -12,4 +12,4 @@ redis
 requests
 tzdata
 protobuf==6.33.5
-fundbest-protobuf @ git+https://github.com/fundbest/fundbest-protobuf.git@v1.0.0
+https://github.com/fundbest/fundbest-protobuf/releases/download/v1.0.0/fundbest_protobuf-1.0.0-py3-none-any.whl
