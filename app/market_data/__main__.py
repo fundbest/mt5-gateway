@@ -10,7 +10,7 @@ from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
 
-from fundbest.market.v1 import market_pb2 # type: ignore
+from market.v1 import market_pb2 # type: ignore
 
 log = logging.getLogger("market_data")
 STOP = feed.STOP
