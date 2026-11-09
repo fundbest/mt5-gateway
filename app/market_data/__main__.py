@@ -10,7 +10,7 @@ from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
 
-from .gen.fundbest.v1 import market_pb2
+from fundbest.market.v1 import market_pb2 # type: ignore
 
 log = logging.getLogger("market_data")
 STOP = feed.STOP
@@ -171,7 +171,6 @@ def main():
 
          name, d, to_utc = s.name, s.digits, clock.to_utc
          lq = s.last_q
-         tick = market_pb2.Tick
          # b_s = a_s = t_ms = None
          for bid, ask, tm in zip(bids, asks, tms):
             sec = tm // 1000
@@ -180,7 +179,7 @@ def main():
                continue
             lq = (bid, ask)
             t_ms = to_utc(sec) * 1000 + tm % 1000
-            raw = tick(symbol_id=s.id, bid=round(bid * s.scale), ask=round(ask * s.scale), time_ms=t_ms).SerializeToString()
+            raw = market_pb2.Tick(symbol_id=s.id, bid=round(bid * s.scale), ask=round(ask * s.scale), time_ms=t_ms).SerializeToString()
             out.append(raw)
          s.last_q = lq
          if not out:
