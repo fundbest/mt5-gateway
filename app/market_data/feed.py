@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 
 import MetaTrader5 as mt5  # type: ignore
-import numpy as np
+import numpy as np # type: ignore
 
 from . import symbols
 from .candles import TFS
