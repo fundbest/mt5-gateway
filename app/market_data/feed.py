@@ -37,6 +37,7 @@ class Sym:
    __slots__ = (
       "id", "name", "kind", "broker", "digits", "half", "clock", "cursor",
       "next_poll", "next_cent", "next_live", "last_q", "pending", "seeded",
+      "scale"
    )
 
    def __init__(self, sid, name, kind, broker, digits, markup):
