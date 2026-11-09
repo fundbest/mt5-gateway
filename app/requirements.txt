@@ -11,4 +11,4 @@ psycopg[binary]
 redis
 requests
 tzdata
-protobuf
+protobuf>=7.36.2,<8
