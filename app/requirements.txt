@@ -1,0 +1,10 @@
+numpy==2.0.2
+pandas==2.3.3
+python-dotenv==1.1.1
+python-json-logger==3.3.0
+MetaTrader5==5.0.5735
+waitress==3.0.2
+psycopg[binary]
+redis
+requests
+tzdata
