@@ -190,9 +190,14 @@ def main():
          if t0 >= s.next_live:
             s.next_live = t0 + LIVE_EVERY
             for tf, c in builder.cur[name].items():
-               live[f"{name}:{tf}"] = (
-                  f"[{to_utc(c[0])},{c[1]:.{d}f},{c[2]:.{d}f},{c[3]:.{d}f},{c[4]:.{d}f},{c[5]}]"
-               )
+               live[f"{name}:{tf}"] = market_pb2.Candle(
+                  ts=to_utc(c[0]),
+                  o=round(c[1] * s.scale),
+                  h=round(c[2] * s.scale),
+                  l=round(c[3] * s.scale),
+                  c=round(c[4] * s.scale),
+                  v=c[5],
+               ).SerializeToString()
 
       for s in syms:
          if s.pending is not None and t0 >= s.next_cent:
