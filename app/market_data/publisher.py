@@ -79,6 +79,6 @@ class CentrifugoPublisher(threading.Thread):
             r = self.http.post(self.url, json=body, headers={"X-API-Key": self.key}, timeout=1)
             if r.status_code != 200 or '"error"' in r.text:
                log.warning("centrifugo %s %s", r.status_code, r.text[:200])
-            log.info("centrifugo response: %s", r.text)
+            # log.info("centrifugo response: %s", r.text)
          except requests.RequestException as e:
             log.warning("centrifugo: %s", e)
