@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package fundbest.v1;
+
+option go_package = "github.com/fundbest/fundbest-core/internal/gen/fundbest/v1;fundbestv1";
+
+message Tick {
+  uint32 symbol_id = 1;
+  int64 bid = 2;
+  int64 ask = 3;
+  int64 time_ms = 4;
+}
+
+message Candle {
+  int64 ts = 1;
+  int64 o = 2;
+  int64 h = 3;
+  int64 l = 4;
+  int64 c = 5;
+  uint32 v = 6;
+}
+
+message LiveCandle {
+  uint32 symbol_id = 1;
+  uint32 tf = 2;
+  Candle candle = 3;
+}
