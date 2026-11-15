@@ -5,9 +5,7 @@ import signal
 import threading
 import time
 
-from app.market_data import poller
-
-from . import feed, session
+from . import feed, session, poller
 from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
