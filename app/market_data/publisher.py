@@ -2,7 +2,7 @@ import logging
 import queue
 import threading
 
-import redis
+import redis # type: ignore
 
 log = logging.getLogger("publisher")
 
@@ -39,8 +39,11 @@ class RedisPublisher(threading.Thread):
             p = self.rdb.pipeline(transaction=False)
             if px:
                p.hset("px", mapping=px)
+               p.expire("live", 5)
             if live:
                p.hset("live", mapping=live)
+               p.expire("px", 30)
+
             for v in ticks:
                p.publish("ticks", v)
             p.execute()
