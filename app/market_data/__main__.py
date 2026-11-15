@@ -5,28 +5,28 @@ import signal
 import threading
 import time
 
+from app.market_data import poller
+
 from . import feed, session
 from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
 
-from market.v1 import market_pb2 # type: ignore
 
 log = logging.getLogger("market_data")
 STOP = feed.STOP
 
 DSN = os.environ["DATABASE_URL"]
-CHANNEL = os.getenv("CENTRIFUGO_PX_PREFIX", "market:px.")
+CHANNEL = os.getenv("CENTRIFUGO_PX_PREFIX", "market:")
 REPAIR_SECONDS = int(os.getenv("REPAIR_SECONDS", "60"))
 CENT_EVERY = int(os.getenv("CENT_EVERY_MS", "250")) / 1000
-LIVE_EVERY = int(os.getenv("LIVE_EVERY_MS", "0")) / 1000
+LIVE_EVERY = int(os.getenv("LIVE_EVERY_MS", "250")) / 1000
 POLL = int(os.getenv("POLL_INTERVAL_MS", "100")) / 1000
 INTERVAL = {"forex": POLL, "metal": POLL, "crypto": int(os.getenv("POLL_CRYPTO_MS", "250")) / 1000}
 LOOP = 0.05
 
 SINK = None
 CLOSED = threading.Event()
-
 
 def cleanup():
    if CLOSED.is_set():
@@ -142,7 +142,7 @@ def main():
             active = now_active
             log.info("markets %s", "awake" if active else "closed, sleeping")
 
-      msgs, px, live, out = {}, {}, {}, []
+      msgs, px, live, ticks = {}, {}, {}, []
       polled = alive = False
 
       for s in syms:
@@ -154,50 +154,18 @@ def main():
             continue
 
          polled = True
-         res = feed.new_ticks(s, s.cursor)
-         if res is None:
+         out = poller.poll(s, builder)
+         if out is None:
             continue
          alive = True
-         bids, asks, tms = res
-         if not bids:
-            continue
-
-         clock = s.clock
-         if not clock.observe(tms[-1]) or not clock.ready:
-            continue
-         if not s.seeded:
-            feed.seed(builder, s)
-            s.seeded = True
-
-         name, d, to_utc = s.name, s.digits, clock.to_utc
-         lq = s.last_q
-         # b_s = a_s = t_ms = None
-         for bid, ask, tm in zip(bids, asks, tms):
-            sec = tm // 1000
-            builder.add(name, bid, sec)
-            if (bid, ask) == lq:
-               continue
-            lq = (bid, ask)
-            t_ms = to_utc(sec) * 1000 + tm % 1000
-            raw = market_pb2.Tick(symbol_id=s.id, bid=round(bid * s.scale), ask=round(ask * s.scale), time_ms=t_ms).SerializeToString()
-            out.append(raw)
-         s.last_q = lq
          if not out:
             continue
 
-         px[name] = out[-1]
-         s.pending = out[-1]
+         ticks.extend(out)
+         px[s.name] = s.pending = out[-1]
          if t0 >= s.next_live:
             s.next_live = t0 + LIVE_EVERY
-            for tf, c in builder.cur[name].items():
-               live[f"{name}:{tf}"] = market_pb2.Candle(
-                  ts=to_utc(c[0]),
-                  o=round(c[1] * s.scale),
-                  h=round(c[2] * s.scale),
-                  l=round(c[3] * s.scale),
-                  c=round(c[4] * s.scale),
-                  v=c[5],
-               ).SerializeToString()
+            live.update(poller.live_blobs(s, builder))
 
       for s in syms:
          if s.pending is not None and t0 >= s.next_cent:
@@ -206,8 +174,8 @@ def main():
             s.pending = None
       if msgs:
          cent_pub.submit(msgs)
-      if out and redis_pub is not None:
-         redis_pub.submit(px, live, out)
+      if ticks and redis_pub is not None:
+         redis_pub.submit(px, live, ticks)
 
       if polled:
          fails = 0 if alive else fails + 1

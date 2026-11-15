@@ -1,6 +1,5 @@
 import os
 import re
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import MetaTrader5 as mt5  # type: ignore
@@ -8,12 +7,11 @@ import numpy as np
 
 FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
 METALS = {"XAU", "XAG", "XPT", "XPD"}
-CRYPTO = {"BTC", "ETH"} # "XRP", "BCH", "ADA", "SOL"
+CRYPTO = {"BTC", "ETH"}
 
 ALIASES = {"GOLD": "XAUUSD", "SILVER": "XAGUSD"}
 
 MARKUP_FACTOR = float(os.getenv("MARKUP_FACTOR", "1"))
-SPREAD_LOOKBACK = timedelta(hours=float(os.getenv("SPREAD_LOOKBACK_HOURS", "1")))
 
 KINDS = {
    "forex": {"commission": 7, "leverage": 500, "max_lot": 50},
@@ -70,14 +68,13 @@ def pick(infos):
 
 
 def spread_points(info):
-   ticks = mt5.copy_ticks_from(
-      info.name, datetime.now(timezone.utc) - SPREAD_LOOKBACK, 2000, mt5.COPY_TICKS_INFO
-   )
-   if ticks is not None and len(ticks):
-      ok = (ticks["bid"] > 0) & (ticks["ask"] > 0)
-      if ok.any():
-         gap = (ticks["ask"] - ticks["bid"])[ok]
-         return max(int(round(float(np.median(gap)) / info.point)), 1)
+   mt5.symbol_select(info.name, True)
+   rates = mt5.copy_rates_from_pos(info.name, mt5.TIMEFRAME_M5, 0, 200)
+   if rates is not None and len(rates):
+      sp = rates["spread"]
+      sp = sp[sp > 0]
+      if len(sp):
+         return max(int(np.median(sp)), 1)
    return max(int(info.spread), 1)
 
 

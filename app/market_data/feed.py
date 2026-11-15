@@ -40,14 +40,14 @@ class Sym:
       "scale"
    )
 
-   def __init__(self, sid, name, kind, broker, digits, markup):
+   def __init__(self, sid, name, kind, broker, digits, markup, clock):
       self.id = sid
       self.name = name
       self.kind = kind
       self.broker = broker
       self.digits = digits
       self.half = float(markup) / 2
-      self.clock = Clock()
+      self.clock = clock
       self.cursor = None
       self.next_poll = self.next_cent = self.next_live = 0.0
       self.last_q = None
@@ -87,15 +87,17 @@ def shutdown():
       mt5.shutdown()
 
 
-def fit_clock(s):
+def fit_clock(clock, broker):
+   with LOCK:
+      mt5.symbol_select(broker, True)
    for _ in range(5):
       with LOCK:
-         rates = mt5.copy_rates_from_pos(s.broker, mt5.TIMEFRAME_H1, 0, 10000)
+         rates = mt5.copy_rates_from_pos(broker, mt5.TIMEFRAME_H1, 0, 10000)
       if rates is not None and len(rates) > 1:
-         s.clock.fit(rates["time"])
+         clock.fit(rates["time"])
          break
       STOP.wait(1)
-   log.info("%s clock: %s", s.name, s.clock.describe())
+   log.info("clock: %s", clock.describe())
 
 
 def setup(st):
@@ -128,6 +130,11 @@ def setup(st):
    else:
       return []
 
+   clock = Clock()
+   ref = next((i for n, i in found.items() if symbols.kind_of(n) == "forex"), None)
+   if ref is not None:
+      fit_clock(clock, ref.name)
+
    out = []
    for sid, name, kind, digits, markup in db:
       info = found.get(name)
@@ -138,12 +145,10 @@ def setup(st):
       if not ok:
          log.warning("symbol %s (%s) not available at broker", name, info.name)
          continue
-      s = Sym(sid, name, kind, info.name, digits, markup)
-      fit_clock(s)
+      s = Sym(sid, name, kind, info.name, digits, markup, clock)
       out.append(s)
       log.info("%s -> %s", name, info.name)
    return out
-
 
 def fmt_row(s, tf, ts, o, h, l, c, v):
    d = s.digits
