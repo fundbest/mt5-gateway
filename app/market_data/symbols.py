@@ -6,8 +6,8 @@ import MetaTrader5 as mt5  # type: ignore
 import numpy as np # type: ignore
 
 FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
-METALS = {"XAU", "XAG", "XPT", "XPD"}
-CRYPTO = {"BTC", "ETH"}
+METALS = {"XAU", "XAG"} # "XPT", "XPD"
+CRYPTO = {"BTC"} # , "ETH"
 
 ALIASES = {"GOLD": "XAUUSD", "SILVER": "XAGUSD"}
 
