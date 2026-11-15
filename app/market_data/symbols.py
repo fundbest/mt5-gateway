@@ -3,7 +3,7 @@ import re
 from decimal import Decimal
 
 import MetaTrader5 as mt5  # type: ignore
-import numpy as np
+import numpy as np # type: ignore
 
 FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
 METALS = {"XAU", "XAG", "XPT", "XPD"}
