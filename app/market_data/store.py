@@ -41,6 +41,12 @@ class Store:
    def upsert(self, rows):
       if not rows:
          return
+
+      seen = {}
+      for r in rows:
+         seen[(r[0], r[1], r[2])] = r
+      rows = list(seen.values())
+
       conn = self.db()
       for i in range(0, len(rows), 5000):
          conn.execute(UPSERT, [list(c) for c in zip(*rows[i:i + 5000])])
