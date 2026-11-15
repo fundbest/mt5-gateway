@@ -1,8 +1,10 @@
 import logging
 import queue
 import threading
+import base64
 
-import redis # type: ignore
+import redis  # type: ignore
+import requests
 
 log = logging.getLogger("publisher")
 
@@ -39,13 +41,46 @@ class RedisPublisher(threading.Thread):
             p = self.rdb.pipeline(transaction=False)
             if px:
                p.hset("px", mapping=px)
-               p.expire("live", 5)
+               p.expire("px", 30)
             if live:
                p.hset("live", mapping=live)
-               p.expire("px", 30)
-
+               p.expire("live", 5)
             for v in ticks:
                p.publish("ticks", v)
             p.execute()
          except redis.RedisError as e:
             log.warning("redis: %s", e)
+
+
+class CentrifugoPublisher(threading.Thread):
+   def __init__(self, url, key):
+      super().__init__(daemon=True, name="centrifugo-pub")
+      self.url = url.rstrip("/") + "/api/batch"
+      self.key = key
+      self.http = requests.Session()
+      self.q = queue.Queue(maxsize=50)
+
+   def submit(self, msgs):
+      try:
+         self.q.put_nowait(msgs)
+      except queue.Full:
+         pass
+
+   def run(self):
+      while True:
+         msgs = self.q.get()
+         try:
+            while True:
+               msgs.update(self.q.get_nowait())
+         except queue.Empty:
+            pass
+         body = {"commands": [
+            {"publish": {"channel": ch, "b64data": base64.b64encode(raw).decode()}}
+            for ch, raw in msgs.items()
+         ]}
+         try:
+            r = self.http.post(self.url, json=body, headers={"X-API-Key": self.key}, timeout=1)
+            if r.status_code != 200 or '"error"' in r.text:
+               log.warning("centrifugo %s %s", r.status_code, r.text[:200])
+         except requests.RequestException as e:
+            log.warning("centrifugo: %s", e)
