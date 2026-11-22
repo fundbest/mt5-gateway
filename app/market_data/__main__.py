@@ -142,11 +142,14 @@ def main():
 
       msgs, px, live, ticks = {}, {}, {}, []
       polled = alive = False
+      IDLE = 2.0
 
       for s in syms:
-         if not awake[s.kind] or t0 < s.next_poll:
+         gap = INTERVAL[s.kind] if awake[s.kind] else IDLE
+         if t0 < s.next_poll:
             continue
-         s.next_poll = t0 + INTERVAL[s.kind]
+         s.next_poll = t0 + gap
+
          if s.cursor is None:
             s.cursor = feed.init_cursor(s)
             continue

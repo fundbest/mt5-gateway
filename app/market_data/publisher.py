@@ -46,7 +46,8 @@ class RedisPublisher(threading.Thread):
                p.hset("live", mapping=live)
                p.expire("live", 5)
             for v in ticks:
-               p.publish("ticks", v)
+               p.xadd("ticks", {"d": v}, maxlen=200000, approximate=True)
+               # p.publish("ticks", v)
             p.execute()
          except redis.RedisError as e:
             log.warning("redis: %s", e)
@@ -61,10 +62,9 @@ class CentrifugoPublisher(threading.Thread):
       self.q = queue.Queue(maxsize=50)
 
    def submit(self, msgs):
-      try:
-         self.q.put_nowait(msgs)
-      except queue.Full:
-         pass
+      with self.lock:
+         self.latest.update(msgs)
+      self.wake.set()
 
    def run(self):
       while True:

@@ -2,7 +2,7 @@ import logging
 import queue
 import threading
 
-import psycopg
+import psycopg # type: ignore
 
 from .candles import TFS
 
@@ -10,13 +10,13 @@ log = logging.getLogger("store")
 
 UPSERT = """
 INSERT INTO sim_candles (symbol_id, tf, ts, o, h, l, c, v)
-SELECT x.s, x.f, to_timestamp(x.t), x.o::numeric, x.h::numeric, x.l::numeric, x.c::numeric, x.v::numeric
-FROM unnest(%s::int2[], %s::int2[], %s::bigint[], %s::text[], %s::text[], %s::text[], %s::text[], %s::text[])
+SELECT x.s, x.f, to_timestamp(x.t), x.o, x.h, x.l, x.c, x.v
+FROM unnest(%s::int2[], %s::int2[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::int[])
   AS x(s, f, t, o, h, l, c, v)
 ON CONFLICT (symbol_id, tf, ts) DO UPDATE
 SET o = EXCLUDED.o, h = EXCLUDED.h, l = EXCLUDED.l, c = EXCLUDED.c, v = EXCLUDED.v
 WHERE (sim_candles.o, sim_candles.h, sim_candles.l, sim_candles.c, sim_candles.v)
-	IS DISTINCT FROM (EXCLUDED.o, EXCLUDED.h, EXCLUDED.l, EXCLUDED.c, EXCLUDED.v)
+   IS DISTINCT FROM (EXCLUDED.o, EXCLUDED.h, EXCLUDED.l, EXCLUDED.c, EXCLUDED.v)
 """
 
 

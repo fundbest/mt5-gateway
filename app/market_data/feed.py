@@ -151,8 +151,8 @@ def setup(st):
    return out
 
 def fmt_row(s, tf, ts, o, h, l, c, v):
-   d = s.digits
-   return (s.id, tf, ts, f"{o:.{d}f}", f"{h:.{d}f}", f"{l:.{d}f}", f"{c:.{d}f}", str(int(v)))
+   k = s.scale
+   return (s.id, tf, ts, round(o * k), round(h * k), round(l * k), round(c * k), int(v))
 
 
 def rate_rows(s, tf, rates):
