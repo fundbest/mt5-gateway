@@ -62,9 +62,10 @@ class CentrifugoPublisher(threading.Thread):
       self.q = queue.Queue(maxsize=50)
 
    def submit(self, msgs):
-      with self.lock:
-         self.latest.update(msgs)
-      self.wake.set()
+      try:
+         self.q.put_nowait(msgs)
+      except queue.Full:
+         pass
 
    def run(self):
       while True:
