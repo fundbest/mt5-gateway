@@ -10,9 +10,10 @@ log = logging.getLogger("store")
 
 UPSERT = """
 INSERT INTO sim_candles (symbol_id, tf, ts, o, h, l, c, v)
-SELECT x.s, x.f, to_timestamp(x.t), x.o, x.h, x.l, x.c, x.v
+SELECT x.s, x.f, to_timestamp(x.t), x.o / k.k, x.h / k.k, x.l / k.k, x.c / k.k, x.v
 FROM unnest(%s::int2[], %s::int2[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::int[])
   AS x(s, f, t, o, h, l, c, v)
+JOIN (SELECT id, power(10::numeric, digits) AS k FROM sim_symbols) k ON k.id = x.s
 ON CONFLICT (symbol_id, tf, ts) DO UPDATE
 SET o = EXCLUDED.o, h = EXCLUDED.h, l = EXCLUDED.l, c = EXCLUDED.c, v = EXCLUDED.v
 WHERE (sim_candles.o, sim_candles.h, sim_candles.l, sim_candles.c, sim_candles.v)
