@@ -10,16 +10,12 @@ log = logging.getLogger("store")
 
 UPSERT = """
 INSERT INTO sim_candles (symbol_id, tf, ts, o, h, l, c, v)
-SELECT x.s, x.f, to_timestamp(x.t), x.o / k.k, x.h / k.k, x.l / k.k, x.c / k.k, x.v
-FROM unnest(%s::int2[], %s::int2[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::bigint[], %s::int[])
-  AS x(s, f, t, o, h, l, c, v)
-JOIN (SELECT id, power(10::numeric, digits) AS k FROM sim_symbols) k ON k.id = x.s
+SELECT * FROM unnest(%s::int2[], %s::int2[], %s::int[], %s::int[], %s::int[], %s::int[], %s::int[], %s::int[])
 ON CONFLICT (symbol_id, tf, ts) DO UPDATE
 SET o = EXCLUDED.o, h = EXCLUDED.h, l = EXCLUDED.l, c = EXCLUDED.c, v = EXCLUDED.v
 WHERE (sim_candles.o, sim_candles.h, sim_candles.l, sim_candles.c, sim_candles.v)
    IS DISTINCT FROM (EXCLUDED.o, EXCLUDED.h, EXCLUDED.l, EXCLUDED.c, EXCLUDED.v)
 """
-
 
 class Store:
    def __init__(self, dsn):
@@ -61,8 +57,8 @@ class Store:
       rows = self.db().execute(
          """
          SELECT t.tf,
-            (SELECT extract(epoch FROM min(ts))::bigint FROM sim_candles WHERE symbol_id = %s AND tf = t.tf),
-            (SELECT extract(epoch FROM max(ts))::bigint FROM sim_candles WHERE symbol_id = %s AND tf = t.tf)
+            (SELECT min(ts)::bigint * 60 FROM sim_candles WHERE symbol_id = %s AND tf = t.tf),
+            (SELECT max(ts)::bigint * 60 FROM sim_candles WHERE symbol_id = %s AND tf = t.tf)
          FROM unnest(%s::int2[]) AS t(tf)
          """,
          (sid, sid, list(TFS)),
@@ -71,7 +67,8 @@ class Store:
 
    def prune(self, days):
       self.db().execute(
-         "DELETE FROM sim_candles WHERE tf = 1 AND ts < now() - make_interval(days => %s)", (days,)
+         "DELETE FROM sim_candles WHERE tf = 1 AND ts < (extract(epoch FROM now())::bigint / 60 - %s)",
+         (days * 1440,),
       )
 
    def sync_symbols(self, rows):
