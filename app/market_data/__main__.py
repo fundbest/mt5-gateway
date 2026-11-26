@@ -21,7 +21,7 @@ REPAIR_SECONDS = int(os.getenv("REPAIR_SECONDS", "60"))
 CENT_EVERY = int(os.getenv("CENT_EVERY_MS", "250")) / 1000
 LIVE_EVERY = int(os.getenv("LIVE_EVERY_MS", "250")) / 1000
 POLL = int(os.getenv("POLL_INTERVAL_MS", "100")) / 1000
-INTERVAL = {"forex": POLL, "metal": POLL, "crypto": int(os.getenv("POLL_CRYPTO_MS", "250")) / 1000}
+INTERVAL = {"forex": POLL, "metal": POLL, "index": POLL, "energy": POLL, "crypto": int(os.getenv("POLL_CRYPTO_MS", "250")) / 1000}
 LOOP = 0.05
 
 SINK = None
