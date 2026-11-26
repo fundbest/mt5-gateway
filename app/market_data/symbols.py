@@ -6,10 +6,12 @@ import MetaTrader5 as mt5  # type: ignore
 import numpy as np # type: ignore
 
 FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
-METALS = {"XAU", "XAG"} # "XPT", "XPD"
+METALS = {"XAU", "XAG", "XPT", "XPD", "CUC"}
 CRYPTO = {"BTC"} # , "ETH"
+EXTRA_SYMBOLS = {"NACUSD", "SPCUSD", "USOIL"}
 
 ALIASES = {"GOLD": "XAUUSD", "SILVER": "XAGUSD"}
+
 
 MARKUP_FACTOR = float(os.getenv("MARKUP_FACTOR", "1"))
 
@@ -17,10 +19,17 @@ KINDS = {
    "forex": {"commission": 7, "leverage": 500, "max_lot": 50},
    "metal": {"commission": 7, "leverage": 200, "max_lot": 20},
    "crypto": {"commission": 20, "leverage": 100, "max_lot": 10},
+   "index": {"commission": 7, "leverage": 100, "max_lot": 20},
+   "energy": {"commission": 7,"leverage": 100,"max_lot": 20},
 }
 
 STEM = re.compile(r"[A-Z]+")
 
+KIND_OVERRIDES = {
+   "NACUSD": "index",
+   "SPCUSD": "index",
+   "USOIL": "commodity",
+}
 
 def canonical(info):
    m = STEM.match(info.name.upper())
@@ -29,6 +38,8 @@ def canonical(info):
    stem = m.group()
    if stem in ALIASES:
       return ALIASES[stem]
+   if stem in EXTRA_SYMBOLS:
+      return stem
    if len(stem) < 6:
       return None
    quote = "USD" if stem[3:7] == "USDT" else stem[3:6]
@@ -36,6 +47,9 @@ def canonical(info):
 
 
 def kind_of(name):
+   if name in KIND_OVERRIDES:
+      return KIND_OVERRIDES[name]
+
    base = name[:3]
    if base in METALS:
       return "metal"
@@ -45,6 +59,9 @@ def kind_of(name):
 
 
 def accepted(name):
+   if name in EXTRA_SYMBOLS:
+      return True
+
    base, quote = name[:3], name[3:]
    kind = kind_of(name)
    if kind == "forex":
