@@ -20,7 +20,7 @@ KINDS = {
    "metal": {"commission": 7, "leverage": 200, "max_lot": 20},
    "crypto": {"commission": 20, "leverage": 100, "max_lot": 10},
    "index": {"commission": 7, "leverage": 100, "max_lot": 20},
-   "energy": {"commission": 7,"leverage": 100,"max_lot": 20},
+   "energy": {"commission": 7,"leverage": 200,"max_lot": 20},
 }
 
 STEM = re.compile(r"[A-Z]+")
@@ -28,7 +28,7 @@ STEM = re.compile(r"[A-Z]+")
 KIND_OVERRIDES = {
    "NACUSD": "index",
    "SPCUSD": "index",
-   "USOIL": "commodity",
+   "USOIL": "energy",
 }
 
 def canonical(info):
