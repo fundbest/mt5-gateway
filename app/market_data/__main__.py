@@ -9,6 +9,7 @@ from . import feed, session, poller
 from .candles import Builder
 from .publisher import CentrifugoPublisher, RedisPublisher
 from .store import Sink, Store
+from .refprice import RefPrices
 
 
 log = logging.getLogger("market_data")
@@ -112,6 +113,9 @@ def main():
    redis_pub = RedisPublisher(redis_url) if redis_url else None
    if redis_pub is not None:
       redis_pub.start()
+
+   if redis_url:
+      RefPrices(redis_url).start()
 
    def on_close(name, tf, c):
       s = by_name[name]
