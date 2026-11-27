@@ -5,10 +5,10 @@ from decimal import Decimal
 import MetaTrader5 as mt5  # type: ignore
 import numpy as np # type: ignore
 
-FIAT = {"USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"}
-METALS = {"XAU", "XAG", "XPT", "XPD", "CUC"}
+FIAT = {"USD", "EUR", "GBP", "CAD", "AUD", "NZD"}
+METALS = {"XAU", "XAG", "XPT", "XPD"}
 CRYPTO = {"BTC"} # , "ETH"
-EXTRA_SYMBOLS = {"NACUSD", "SPCUSD", "USOIL"}
+EXTRA_SYMBOLS = {"NACUSD", "SPCUSD", "USOIL", "USDJPY", "USDCHF"}
 
 ALIASES = {"GOLD": "XAUUSD", "SILVER": "XAGUSD"}
 
@@ -29,6 +29,8 @@ KIND_OVERRIDES = {
    "NACUSD": "index",
    "SPCUSD": "index",
    "USOIL": "energy",
+   "USDJPY": "forex",
+   "USDCHF": "forex",
 }
 
 def canonical(info):
